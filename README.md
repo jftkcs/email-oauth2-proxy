@@ -1,6 +1,12 @@
 # Email OAuth 2.0 Proxy
 Transparently add OAuth 2.0 support to IMAP/POP/SMTP client applications, scripts or any other email use-cases that don't support this authentication method.
 
+# RE: THIS BRANCH
+This fork is tweaked to fix the following quirks when using it to proxy Exchange Online IMAP Connections
+1. Category Flags appear in a TEXT search, but not BODY searches. BODY will be replaced with TEXT in a search command
+2. Exchange Online will return no results if the IMAP Search string has capital letters (?!?) so we lowercase all BODY/TEXT search strings
+3. Exchange Online will return no results if there's a space in a search string, nothing I can do there but warn. Maybe TODO: generate multiple searches by splitting a query with spaces?
+
 
 ## Motivation and capabilities
 Email services that support IMAP, POP and/or SMTP access are increasingly requiring the use of OAuth 2.0 to authenticate connections, but not all clients support this method.

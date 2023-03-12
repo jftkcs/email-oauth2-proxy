@@ -152,6 +152,8 @@ IMAP_AUTHENTICATION_REQUEST_MATCHER = re.compile(
     r'^(?P<tag>%s) (?P<command>(LOGIN|AUTHENTICATE)) (?P<flags>.*)$' % IMAP_TAG_PATTERN, flags=re.IGNORECASE)
 IMAP_LITERAL_MATCHER = re.compile(r'^{(?P<length>\d+)(?P<continuation>\+?)}$')
 IMAP_CAPABILITY_MATCHER = re.compile(r'^(?:\* |\* OK \[)CAPABILITY .*$', flags=re.IGNORECASE)  # note: '* ' and '* OK ['
+IMAP_O365_BODY_SEARCH_MATCH = re.compile(br'\S* SEARCH CHARSET US-ASCII \(BODY ".*".*\)', flags=re.IGNORECASE) #HACK FOR O365 IMAP SEARCH SUPPORT
+IMAP_O365_BODY_QUIRK_MATCH = re.compile(br'\S* SEARCH CHARSET US-ASCII \(BODY "\S*".*\)', flags=re.IGNORECASE) #HACK FOR O365 IMAP SEARCH SUPPORT - Spaces are unsupported in a search query
 
 REQUEST_QUEUE = queue.Queue()  # requests for authentication
 RESPONSE_QUEUE = queue.Queue()  # responses from user
@@ -1095,6 +1097,9 @@ class OAuth2ClientConnection(SSLAsyncoreDispatcher):
         self.proxy_parent = proxy_parent
         self.custom_configuration = custom_configuration
 
+        self.targeting_o365 = self.server_address[0] == 'outlook.office365.com'
+        self.logged_o365_bad_search_warn = False
+
         self.censor_next_log = False  # try to avoid logging credentials
         self.authenticated = False
 
@@ -1121,6 +1126,15 @@ class OAuth2ClientConnection(SSLAsyncoreDispatcher):
 
         # we have already authenticated - nothing to do; just pass data directly to server
         if self.authenticated:
+            if (self.proxy_type == 'IMAP' and self.targeting_o365): #Hackey check to allow paperless-ngx to find email categories by doing a TEXT Search
+                if (re.match(IMAP_O365_BODY_SEARCH_MATCH,byte_data) != None): #If we identify a BODY search we change it to a TEXT search and convert the string to lowercase, required for O365 IMAP Search to work
+                    if (not self.logged_o365_bad_search_warn and re.match(IMAP_O365_BODY_QUIRK_MATCH, byte_data) == None):
+                        Log.info(self.info_string(), '-->','[ O365 IMAP search has spaces in the search string, this is broken and will not return any results! This warning will not be repeated. Search string:', byte_data, ']')
+                        self.logged_o365_bad_search_warn = True
+                    Log.debug(self.info_string(), '-->','[ O365 BODY search will be modified. Original query: ',byte_data,']')
+                    byte_data = re.sub(br'SEARCH CHARSET US-ASCII \(BODY "' , br'SEARCH CHARSET US-ASCII (TEXT "' , byte_data)
+                    byte_data = re.sub(br'\(TEXT "(.*)"', lambda pat: br'(TEXT "' + pat.group(1).lower() + br'"' ,byte_data)
+                    Log.debug(self.info_string(), '-->','[ O365 BODY search has changed. New query: ',byte_data, ']')
             Log.debug(self.info_string(), '-->', byte_data)
             OAuth2ClientConnection.process_data(self, byte_data)
 
